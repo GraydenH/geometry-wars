@@ -3,6 +3,8 @@ extern crate glium;
 
 use std::io::Cursor;
 
+mod teapot;
+
 fn main() {
     #[allow(unused_imports)]
     use glium::{glutin, Surface};
@@ -18,42 +20,39 @@ fn main() {
     let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
     let texture = glium::texture::Texture2d::new(&display, image).unwrap();
 
-    #[derive(Copy, Clone)]
-    struct Vertex {
-        position: [f32; 2],
-        tex_coords: [f32; 2],
-    }
-
-    implement_vertex!(Vertex, position, tex_coords);
-
-    let vertex1 = Vertex { position: [-0.5, -0.5], tex_coords: [0.0, 0.0] };
-    let vertex2 = Vertex { position: [ 0.0,  0.5], tex_coords: [0.0, 1.0] };
-    let vertex3 = Vertex { position: [ 0.5, -0.25], tex_coords: [1.0, 0.0] };
-    let shape = vec![vertex1, vertex2, vertex3];
-
-    let vertex_buffer = glium::VertexBuffer::new(&display, &shape).unwrap();
-    let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
-
+    let positions = glium::VertexBuffer::new(&display, &teapot::VERTICES).unwrap();
+    let normals = glium::VertexBuffer::new(&display, &teapot::NORMALS).unwrap();
+    let indices = glium::IndexBuffer::new(&display, glium::index::PrimitiveType::TrianglesList,
+                                          &teapot::INDICES).unwrap();
     let vertex_shader_src = r#"
-        #version 140
-        in vec2 position;
-        in vec2 tex_coords;
-        out vec2 v_tex_coords;
+        #version 150      // updated
+
+        in vec3 position;
+        in vec3 normal;
+
+        out vec3 v_normal;      // new
+
         uniform mat4 matrix;
+
         void main() {
-            v_tex_coords = tex_coords;
-            gl_Position = matrix * vec4(position, 0.0, 1.0);
+            v_normal = transpose(inverse(mat3(matrix))) * normal;       // new
+            gl_Position = matrix * vec4(position, 1.0);
         }
     "#;
 
     let fragment_shader_src = r#"
-        #version 140
-        in vec2 v_tex_coords;
-        out vec4 color;
-        uniform sampler2D tex;
-        void main() {
-            color = texture(tex, v_tex_coords);
-        }
+#version 140
+
+in vec3 v_normal;
+out vec4 color;
+uniform vec3 u_light;
+
+void main() {
+    float brightness = dot(normalize(v_normal), normalize(u_light));
+    vec3 dark_color = vec3(0.6, 0.0, 0.0);
+    vec3 regular_color = vec3(1.0, 0.0, 0.0);
+    color = vec4(mix(dark_color, regular_color, brightness), 1.0);
+}
     "#;
 
     let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
@@ -90,17 +89,17 @@ fn main() {
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
 
-        let uniforms = uniform! {
-            matrix: [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [ t , 0.0, 0.0, 1.0f32],
-            ],
-            tex: &texture,
-        };
+        let matrix = [
+            [0.01, 0.0, 0.0, 0.0],
+            [0.0, 0.01, 0.0, 0.0],
+            [0.0, 0.0, 0.01, 0.0],
+            [0.0, 0.0, 0.0, 1.0f32]
+        ];
+// the direction of the light
+        let light = [-1.0, 0.4, 0.9f32];
 
-        target.draw(&vertex_buffer, &indices, &program, &uniforms,
+        target.draw((&positions, &normals), &indices, &program,
+                    &uniform! { matrix: matrix, u_light: light },
                     &Default::default()).unwrap();
         target.finish().unwrap();
     });
